@@ -1,0 +1,22 @@
+heating
+&cntrl
+  imin = 0, nstlim = 1000000, dt = 0.001,                         ! Don't Minimize, Number of steps, time step
+  irest = 0, ntx = 1, ig = -1,                                    ! Read vel. (1 = input, 0 = no restart), (1 = start from min, 2 = start from md), random number seed 
+  tempi = 100, temp0 = 300,                                 ! Initial temp., Target Temp. 
+  ntc = 2, ntf = 2, tol = 0.00001,                                ! Shake (2 = bonds involving hydrogen), Force Eval. 
+  ntwx = 5000, ntwe = 5000, ntwr = 500000, ntpr = 5000,      ! Print info 
+  cut=10.0, iwrap=0,                                           ! cutoff, no wrap
+  ntt = 3, gamma_ln = 1.0, ntb = 1, ntp = 0,                      ! Choose temp. control (3 = langevin), Collision Frq,
+  nscm = 0,                                                       ! Remove center of mass motion every nscm steps      
+  ntr = 1, restraintmask = ':1-180&!@H=', restraint_wt = 100.0, ! All restraint options                    
+  iphmd = 3, solvph = 7.5,                   ! 2 = hybrid, pH, Implicent salt concentration
+  nmropt = 1,                                                     ! Change thermostat with time 
+  ioutfm = 1, ntxo = 2,                                           ! Output type 
+ /
+ &wt
+   TYPE="TEMP0", istep1 = 0, istep2 = 1000000,                 ! This section modulates the heatup rate 
+   value1=100, value2=300,
+/
+&wt
+  TYPE="END",
+/

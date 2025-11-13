@@ -1,0 +1,8 @@
+. /home/rliu/miniconda3/etc/profile.d/conda.sh
+conda activate cphmd-prep
+export AMBERHOME=/home/rliu/projects/amber_cphmd_cu113/
+source /home/rliu/projects/amber_cphmd_cu113/amber.sh
+export PATH=$PATH:/home/quynhv/Apps/cuda11.1/bin:/home/rliu/softwares/cphmd-prep/cphmd_tools:/home/joec/anaconda3/envs/westpa2.0/bin
+export CUDA_HOME=/home/quynhv/Apps/cuda11.1
+export LD_LIBRARY_PATH=/home/quynhv/Apps/cuda11.1/lib64:/home/joec/missingLib:$LD_LIBRARY_PATH
+python async_prod.py > log 

@@ -1,0 +1,14 @@
+Stage 1 equilibration of asp
+        &cntrl
+        imin = 0, nstlim = 250000, dt = 0.002,
+        irest = 1, ntx = 5,ig = -1,
+        temp0 = 300,
+        ntc = 2, ntf = 2, tol = 0.00001,
+        ntwx = 100000, ntwe = 100000, ntwr = 100000, ntpr = 100000,
+        cut = 10.0, iwrap = 0, taup = 0.5,
+        ntt = 3, gamma_ln = 1.0, ntb = 2, ntp = 1,              ! ntp (1 = isotropic position scaling)
+        iphmd = 3, solvph = PH,
+        nscm = 0,
+        ntr = 1, restraintmask = '@CA,C,N,O', restraint_wt = 10.0,
+        ioutfm = 1, ntxo = 2,
+      /

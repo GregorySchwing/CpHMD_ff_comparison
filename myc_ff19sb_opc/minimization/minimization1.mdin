@@ -1,0 +1,11 @@
+Minimization input file in explicit solvent
+ &cntrl
+    ! Minimization options
+    imin=1,                        ! Turn on minimization
+    maxcyc=10000,                  ! Maximum number of minimization cycles
+    ncyc=1000,                     ! steepest-descent steps, better for strained systems
+    ntpr=1000,                     ! Write to mdout every 1K steps
+    ntr=1,                         ! Minimization with restraint
+    restraint_wt = 100,            ! harmonic restraints (10 kcal/molA²)    
+    restraintmask = ':1-180&!@H=', ! protein heavy atoms
+ /

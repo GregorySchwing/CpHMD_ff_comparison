@@ -1,0 +1,32 @@
+#!/bin/bash
+
+#$ -S /bin/bash
+#$ -cwd
+#$ -V
+#$ -N BBL
+#$ -o $JOB_ID.o
+#$ -e $JOB_ID.e
+#$ -j y
+#$ -l h_data=1000M,h_rt=24:00:00
+#$ -l gpu=2
+#$ -pe smp 4
+#$ -l hostname=spirit1
+#$ -R y
+
+export AMBER_SCRDIR=/tmp/$USER/amber$$
+export PATH=$HOME/miniconda3/bin:$PATH
+. /home/rliu/miniconda3/etc/profile.d/conda.sh
+conda activate cphmd-prep
+
+cwd=`pwd`
+
+if [ ! -d $AMBER_SCRDIR ] ; then mkdir -p $AMBER_SCRDIR; fi
+cp -r $cwd/* $AMBER_SCRDIR
+cd $AMBER_SCRDIR
+
+echo "$PWD"
+bash async_prod.scr
+cp -r $AMBER_SCRDIR/* $cwd
+echo "job done." >> joblog
+#rm -f * 
+

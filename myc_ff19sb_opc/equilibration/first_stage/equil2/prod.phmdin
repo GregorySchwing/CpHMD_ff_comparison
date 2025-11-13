@@ -1,0 +1,14 @@
+&phmdin
+    QMass_PHMD = 10,                                        ! Mass of the Lambda Particle
+    Temp_PHMD = 300,                                        ! Temp of the lambda particle
+    phbeta = 5,                                             ! Friction Coefficient (1/ps) for titration integrator
+    iphfrq = 1,                                             ! Frequency to update the lambda forces
+    NPrint_PHMD = 500,                                      ! How often to print the lambda
+    PrLam = .true.,                                         ! Should lambda be printed
+    PrDeriv = .false.,                                      ! Do you want to print the derivatives?
+    PRNLEV = 7,                                             ! Sets what is printed out, (7) normal print level
+    PHTest = 0,                                             ! Are lambda and theta fixed, (0) = not fixed, (1) = fixed
+    MaskTitrRes(:) = 'HIP','AS2','GL2'                      ! Residues to include as titratable
+    MaskTitrResTypes = 3,                                   ! number of titratable residues
+    QPHMDStart = .true.,                                    ! Initialize velocities of titration varibles with a Boltzmann distribution
+/
