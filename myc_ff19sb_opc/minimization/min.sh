@@ -1,2 +1,4 @@
 # need to construct mini_?.min files
-pmemd.cuda -O -i minimization1.mdin -p 1w4h_cphmd.prmtop -c 1w4h_cphmd.rst7 -r 1w4h_min1.rst7 -o 1w4h_min_1.out -ref  1w4h_cphmd.rst7 -x 1w4h_min1.nc
+cp ../myc_max_rcsb_rotated_cphmd.rst7 .
+cp ../myc_max_rcsb_rotated_cphmd.prmtop .
+pmemd.cuda -O -i minimization1.mdin -p myc_max_rcsb_rotated_cphmd.prmtop -c myc_max_rcsb_rotated_cphmd.rst7 -r myc_max_rcsb_rotated_cphmd.rst7 -o myc_max_rcsb_rotated_cphmd.out -ref  myc_max_rcsb_rotated_cphmd.rst7 -x myc_max_rcsb_rotated_cphmd.nc
