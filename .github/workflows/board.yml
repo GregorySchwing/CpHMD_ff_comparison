@@ -1,0 +1,164 @@
+name: Board
+
+# Keeps the board, the file STATE.md on the branch "board", equal to what
+# GitHub knows: the open issues, the claude/<issue> branches and their claim
+# files, the open pull requests with how far each is from the default
+# branch, and the five pull requests merged last. Every Claude session and
+# every account reads it before claiming work (git fetch origin board &&
+# git show origin/board:STATE.md; the session hook prints it).
+# tools/board.py renders it from the REST API with GITHUB_TOKEN alone (no
+# other secret is needed) and puts no wall-clock value in it, so the file
+# changes only when the repository did, and only then is it written. The
+# board branch holds exactly one commit, built below from the rendered file
+# alone (hash-object, mktree, commit-tree; the checkout is never touched)
+# and force-pushed in its place, so the default branch carries no board
+# commit, no pull request falls behind because of one, and protection of
+# the default branch never stands in the way; a ruleset must target only
+# the default branch for the same reason (docs/setup/github.md). A push
+# made with GITHUB_TOKEN starts no workflow, so this run cannot start itself
+# again. The same run comments once on a pull request that fell behind the
+# default branch after a push to it, and once on a pull request idle for
+# more than a day; the comments carry HTML markers so a second run posts
+# nothing twice. One run at a time; when events come in a burst GitHub
+# keeps only the newest waiting run, which renders the newest state, so no
+# finished board lags.
+#
+# The checkout is the default branch itself, whatever event started the
+# run, so the board describes that branch's head (git rev-parse HEAD
+# below). The branch's name comes from the event's repository object,
+# which every trigger here carries, scheduled runs included;
+# GITHUB_REF_NAME stands behind it only as a fallback. A branch made or deleted starts a run too, so a claim shows the
+# moment it is pushed and a merged claim's branch leaves the board when it
+# goes. The job is skipped in the template repository itself, for a push
+# to any other branch, and for a pull request from a fork, whose token is
+# read-only; scheduled runs carry the repository too, so the template's
+# own schedule is skipped at the job (its run history shows it). The
+# first step is a second layer for the two cases that gate cannot see: a
+# template whose "Template repository" box was never ticked, and a copy
+# whose template-init has not run yet. Both still hold the marker folder
+# .template/, which template-init deletes, so the run ends there without
+# writing anything. The last step tells the coordinator routine the board moved,
+# only when it did and the two secrets are set; it fails softly, so a
+# routine that did not answer never turns the board red. In crowd mode
+# (docs/setup/crowdsourcing.md) that step never runs: while the variable
+# CLAUDE_CROWD is true its condition is false, so a trigger pair that reaches
+# a crowd repository, from the organization for instance, cannot start the
+# owner's routine on the owner's subscription whenever a writer moves the
+# board; the crowd coordinator runs on its schedule alone.
+
+on:
+  push:
+  create:
+  delete:
+  pull_request:
+    types: [opened, synchronize, reopened, closed]
+  issues:
+    types: [opened, edited, closed, reopened, labeled, unlabeled]
+  schedule:
+    # The cron is a fallback for a missed webhook, not the engine: the
+    # event triggers above carry every real change. Four runs a day cost
+    # a private repository about 120 billed minutes a month where hourly
+    # cost about 750, over a third of the Free plan's 2,000
+    # (docs/setup/tiers.md); a public repository pays nothing either way.
+    - cron: "17 */6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+concurrency:
+  group: board
+  cancel-in-progress: false
+
+env:
+  DEFAULT_BRANCH: ${{ github.event.repository.default_branch || github.ref_name }}
+
+jobs:
+  board:
+    if: >-
+      github.event.repository.is_template == false
+      && (github.event_name != 'push' || github.ref_name == github.event.repository.default_branch)
+      && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.DEFAULT_BRANCH }}
+
+      # The checkout is the default branch, so on a pull request that brings
+      # the board (a setup branch, an adoption) the tool is not there yet:
+      # that run is skipped, not red, and the first run after the merge
+      # renders the board.
+      - name: Stop in the template itself, or before the board's tool has landed
+        id: gate
+        run: |
+          if [ -e .template/PENDING ]; then
+            echo "the template itself, or a copy not yet initialised; no board"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          elif [ ! -f tools/board.py ]; then
+            echo "the default branch has no tools/board.py yet; no board until the pull request that brings it is merged"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Fetch the previous board
+        if: steps.gate.outputs.skip != 'true'
+        run: |
+          # By name, so a checkout made for one branch gets it too; no board
+          # yet is not a failure. It is only compared with, below.
+          git fetch --quiet origin +refs/heads/board:refs/remotes/origin/board 2>/dev/null \
+            || echo "no board branch yet"
+
+      - name: Render the board and comment on waiting pull requests
+        if: steps.gate.outputs.skip != 'true'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python3 tools/board.py --default-branch "$DEFAULT_BRANCH" --sha "$(git rev-parse HEAD)" --out "$RUNNER_TEMP/STATE.md"
+
+      - name: Write the board to the branch board when it changed
+        id: board
+        if: steps.gate.outputs.skip != 'true'
+        env:
+          GIT_AUTHOR_NAME: github-actions[bot]
+          GIT_AUTHOR_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
+          GIT_COMMITTER_NAME: github-actions[bot]
+          GIT_COMMITTER_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
+        run: |
+          rendered="$RUNNER_TEMP/STATE.md"
+          if git show origin/board:STATE.md > "$RUNNER_TEMP/previous.md" 2>/dev/null \
+             && cmp -s "$rendered" "$RUNNER_TEMP/previous.md"; then
+            echo "board unchanged"
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          sha7="$(git rev-parse HEAD | cut -c1-7)"
+          blob="$(git hash-object -w "$rendered")"
+          tree="$(printf '100644 blob %s\tSTATE.md\n' "$blob" | git mktree)"
+          commit="$(git commit-tree "$tree" -m "Board as of $sha7")"
+          git push --force --quiet origin "$commit:refs/heads/board"
+          echo "board written as $commit"
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Tell the coordinator routine
+        if: vars.CLAUDE_CROWD != 'true' && steps.board.outputs.changed == 'true'
+        env:
+          TRIGGER_URL: ${{ secrets.COORDINATOR_TRIGGER_URL }}
+          TRIGGER_TOKEN: ${{ secrets.COORDINATOR_TRIGGER_TOKEN }}
+        run: |
+          if [ -z "$TRIGGER_URL" ] || [ -z "$TRIGGER_TOKEN" ]; then
+            echo "no coordinator trigger is set; skipped"
+            exit 0
+          fi
+          # The routine's /fire endpoint ships under a dated beta header, which
+          # Anthropic's own example sends with every call
+          # (code.claude.com/docs/en/routines, "Trigger a routine"); when the
+          # date moves, the two before it keep working for a while.
+          curl -fsS -X POST "$TRIGGER_URL" \
+            -H "Authorization: Bearer $TRIGGER_TOKEN" \
+            -H "anthropic-beta: experimental-cc-routine-2026-04-01" \
+            -H "anthropic-version: 2023-06-01" \
+            -H "Content-Type: application/json" \
+            -d '{"text": "The board moved."}' \
+            || echo "the coordinator did not answer; the board is written anyway"
