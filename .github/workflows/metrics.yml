@@ -1,0 +1,169 @@
+name: Metrics
+
+# Keeps METRICS.json on the branch "metrics" equal to how the claim protocol
+# ran here over the last 30 days, in aggregates only: counts of claims, pull
+# requests, merges, reviews, check runs, conflicts, released claims and
+# contributors, the median and 90th percentile of three waits, and two
+# rates (docs/setup/metrics.md lists every key and how each lines up with
+# what coordbench and CooperBench measure). tools/metrics.py collect reads
+# them from the REST API with GITHUB_TOKEN alone and writes no name, login,
+# title, branch name, URL, issue number or text, so the file can be shared
+# without sharing the project. OpenSpineConsortium's collector reads this
+# file and JUDGE.json from the branch metrics, and only in a repository that
+# installed the Symphony App; nothing here sends anything anywhere.
+# Sharing is on by default, with one switch two ways: the word off in
+# .github/symphony-metrics on the default branch, or the repository variable
+# SDLC_METRICS set to off. Off from either wins, and the run then writes
+# {"schema": "sdlc-metrics/1", "sharing": "off"} and calls no API.
+#
+# The run is daily at 03:43 UTC, before the collector's read at 04:17, so
+# what the collector reads is the day's; by hand; and on a push to the
+# default branch that changes .github/symphony-metrics, so a merge of off puts
+# the off record on the branch at once, before the next read, instead of
+# leaving the last on record there for one more day. A change to the
+# variable starts no run: the owner runs the workflow once by hand after
+# setting it (docs/setup/metrics.md). The checkout is the default branch
+# whatever started the run, so the switch read is the default branch's.
+#
+# The branch metrics is written the way the board's branch is: a commit
+# built from the files alone (hash-object, mktree, commit-tree; the checkout
+# is never touched), so the default branch carries no metrics commit and
+# its protection never stands in the way; a ruleset must target only the
+# default branch for the same reason (docs/setup/github.md). The commit
+# holds the new METRICS.json and the JUDGE.json the branch already had,
+# which a maintainer's judge (tools/metrics.py judge, on their own machine
+# and their own Claude account) pushes as an ordinary commit on top. The run
+# replaces the branch with --force-with-lease naming the commit it fetched,
+# or nothing when there was no branch, so a judge push that landed in
+# between is never lost: the lease fails, and the run reads the branch again
+# and tries once more. A branch metrics that holds anything but those two
+# files is the project's own, there before this workflow came (a repository
+# that adopted the template, or an owner who started one), and replacing it
+# would lose it: the run says so, says to rename it, and pushes nothing. It
+# writes only when METRICS.json changed apart from its generated_at, and a
+# push made with GITHUB_TOKEN starts no workflow. The job is skipped in the
+# template repository itself, scheduled runs included; in a fork, whose
+# branch metrics is a frozen copy of the original's from the day the fork
+# was made, so a run there would write metrics of its own beside the
+# original's JUDGE.json; and on a push to any branch but the default one.
+# Its first step ends the run wherever the marker folder .template/ still
+# is (a template whose "Template repository" box was never ticked, a copy
+# whose template-init has not run), as the board's does. Values reach the
+# shell only through env. The schedule's minute is an odd one, so the run
+# does not queue behind every workflow set for the top of the hour.
+# In crowd mode (docs/setup/crowdsourcing.md) it runs as anywhere: it names
+# no secret but GITHUB_TOKEN and starts nothing on anyone's subscription.
+
+on:
+  push:
+    paths: [".github/symphony-metrics", ".github/sdlc-metrics"]
+  schedule:
+    - cron: "43 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: read
+  issues: read
+  checks: read
+
+concurrency:
+  group: metrics
+  cancel-in-progress: false
+
+env:
+  DEFAULT_BRANCH: ${{ github.event.repository.default_branch || github.ref_name }}
+
+jobs:
+  metrics:
+    # Never in the template itself; on a push only when it is the default
+    # branch's; never in a fork, whose branch metrics is a frozen copy of
+    # the original's.
+    if: >-
+      github.event.repository.is_template == false
+      && (github.event_name != 'push' || github.ref_name == github.event.repository.default_branch)
+      && github.event.repository.fork == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.DEFAULT_BRANCH }}
+
+      - name: Stop in the template repository itself
+        id: gate
+        run: |
+          if [ -e .template/PENDING ]; then
+            echo "the template itself, or a copy not yet initialised; no metrics"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Collect the aggregates
+        if: steps.gate.outputs.skip != 'true'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SDLC_METRICS: ${{ vars.SDLC_METRICS }}
+        run: python3 tools/metrics.py collect --repo "$GITHUB_REPOSITORY" --out "$RUNNER_TEMP/METRICS.json"
+
+      - name: Write METRICS.json to the branch metrics when it changed
+        if: steps.gate.outputs.skip != 'true'
+        env:
+          GIT_AUTHOR_NAME: github-actions[bot]
+          GIT_AUTHOR_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
+          GIT_COMMITTER_NAME: github-actions[bot]
+          GIT_COMMITTER_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
+        run: |
+          new="$RUNNER_TEMP/METRICS.json"
+          # The branch is this workflow's to replace only while it holds
+          # nothing but the two files it and the judge write: any other
+          # path means a branch the project had before, which the push
+          # would lose. It prints those paths, and like grep it succeeds
+          # only when there is one.
+          foreign_files() {
+            git ls-tree --name-only "$1" | grep -v -x -e METRICS.json -e JUDGE.json
+          }
+          # One attempt: read the branch as it is now, keep its JUDGE.json,
+          # put the new METRICS.json beside it, and push only if the branch
+          # is still the commit that was read. Each step that can fail says
+          # so, since a function called in a condition runs without -e. A
+          # foreign branch returns 2, so the caller can tell it from a lease
+          # that failed, which alone is worth a second attempt.
+          write_metrics() {
+            previous=""
+            git update-ref -d refs/remotes/origin/metrics 2>/dev/null || true
+            if git fetch --quiet --no-tags origin +refs/heads/metrics:refs/remotes/origin/metrics 2>/dev/null; then
+              previous="$(git rev-parse refs/remotes/origin/metrics)" || return 1
+            fi
+            if [ -n "$previous" ] && foreign="$(foreign_files "$previous")"; then
+              echo "the branch metrics holds files this workflow did not write:"
+              echo "$foreign"
+              echo "It is the project's own branch and stays as it is; nothing was pushed."
+              echo "Rename it (git branch -m metrics NAME in a clone, then push NAME and delete metrics, or the repository's branches page) and the next run starts a branch metrics of its own."
+              return 2
+            fi
+            if [ -n "$previous" ] \
+               && git show "$previous:METRICS.json" > "$RUNNER_TEMP/previous.json" 2>/dev/null \
+               && python3 tools/metrics.py unchanged "$RUNNER_TEMP/previous.json" "$new"; then
+              echo "metrics unchanged"
+              return 0
+            fi
+            blob="$(git hash-object -w "$new")" || return 1
+            entries="$(printf '100644 blob %s\tMETRICS.json' "$blob")"
+            if [ -n "$previous" ] && judge="$(git rev-parse --verify --quiet "$previous:JUDGE.json")"; then
+              entries="$entries$(printf '\n100644 blob %s\tJUDGE.json' "$judge")"
+            fi
+            tree="$(printf '%s\n' "$entries" | git mktree)" || return 1
+            commit="$(git commit-tree "$tree" -m "Metrics as of $(date -u +%Y-%m-%d)")" || return 1
+            git push --quiet --force-with-lease="refs/heads/metrics:$previous" origin "$commit:refs/heads/metrics" \
+              || return 1
+            echo "metrics written as $commit"
+          }
+          status=0
+          write_metrics || status=$?
+          if [ "$status" -eq 0 ]; then
+            exit 0
+          elif [ "$status" -eq 2 ]; then
+            exit 1
+          fi
+          echo "the branch metrics moved during this run; reading it again"
+          write_metrics

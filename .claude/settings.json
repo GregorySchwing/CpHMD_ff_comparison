@@ -1,0 +1,14 @@
+{
+  "extraKnownMarketplaces": {
+    "symphony-marketplace": {
+      "source": {
+        "source": "github",
+        "repo": "OpenSpineConsortium/symphony-marketplace"
+      },
+      "autoUpdate": true
+    }
+  },
+  "enabledPlugins": {
+    "symphony@symphony-marketplace": true
+  }
+}
